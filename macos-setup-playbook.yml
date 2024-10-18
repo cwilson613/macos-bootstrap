@@ -1,0 +1,101 @@
+- name: Install software
+  hosts: localhost
+  become: false
+  vars:
+    install_homebrew_if_missing: true
+    upgrade_homebrew_packages: true
+    brew_cask_packages:
+      # - docker # Replaced with Podman below
+      - iterm2 # Terminal alternative
+      - jiggler # Override MacOS Sleep/Lock
+      - obsidian # Notes
+      - podman-desktop # replace docker; FOSS, RedHat for DoD, runs pods
+      - spotify
+      - visual-studio-code
+    brew_tap_packages: [] # List of taps - leave empty to skip job
+    brew_packages:
+      - bash-completion # Tab completion support for bash commands
+      - code-cli # Visual Studio Code CLI (e.g. `code .` opens $pwd in VSCode)
+      - fluxcd/tap/flux # Used to fail, must have been fixed upstream - CRW
+      - git # Version Control
+      - go # GoLang
+      - helm # K8s Package Manager
+      - jq # CLI JSON parser
+      - krew # plugins for kubectl
+      - kubectl # K8s CLI
+      - nmap
+      - openssl
+      - opentofu # OpenTofu; FOSS; LinuxFoundation GA fork of Terraform
+      - packer # Image builder IAC tool (Hashicorp)
+      - python@3.12
+      - sops
+      - ssh-copy-id
+      # - terraform  # brew locked at 1.5.7  # Last open license of TF, keep around because it's still common (Deprecate for OpenTofu when possible)
+      - tmux
+      - tree
+      - vault # Hashicorp Vault CLI
+      - watch
+      - wget
+      # - zerotier-one
+      - zsh # shell; bash alternative; default for MacOS, FreeBSD
+      - zsh-syntax-highlighting
+    # brew_packages_broken:  # Feel free to debug/troubleshoot!
+
+  pre_tasks:
+    - name: Ensuring Homebrew Is Installed
+      ansible.builtin.stat:
+        path: /opt/homebrew/bin/brew
+      register: homebrew_check
+
+    - name: Fail If Homebrew Is Not Installed and install_homebrew_if_missing Is False
+      ansible.builtin.fail:
+        msg: Homebrew is missing, install from http://brew.sh
+      when:
+        - not homebrew_check.stat.exists
+        - not install_homebrew_if_missing
+
+    - name: Installing Homebrew
+      ansible.builtin.shell: /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+      register: homebrew_install_output
+      changed_when: homebrew_install_output.rc != 0
+      when:
+        - not homebrew_check.stat.exists
+        - install_homebrew_if_missing
+  tasks:
+    - name: Updating Homebrew
+      community.general.homebrew:
+        update_homebrew: true
+      when: homebrew_check.stat.exists
+
+    - name: Upgrading Homebrew Packages
+      community.general.homebrew:
+        upgrade_all: "{{ upgrade_homebrew_packages }}"
+      register: result
+      until: result is successful
+      when: homebrew_check.stat.exists
+
+    - name: Installing Homebrew Cask Packages
+      community.general.homebrew_cask:
+        name: "{{ brew_cask_packages }}"
+        state: present
+      register: result
+      until: result is successful
+      when: homebrew_check.stat.exists
+
+    - name: Installing Homebrew Packages
+      community.general.homebrew:
+        name: "{{ brew_packages }}"
+        state: present
+      register: result
+      until: result is successful
+      when: homebrew_check.stat.exists
+
+    - name: Installing Homebrew Tap Packages
+      community.general.homebrew_tap:
+        name: "{{ brew_tap_packages }}"
+        state: present
+      register: result
+      until: result is successful
+      when:
+        - homebrew_check.stat.exists
+        - brew_tap_packages | length > 0
